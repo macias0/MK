@@ -149,26 +149,25 @@ line:
 	{
 		assignment();
 	}
-	| expr ';'
+	| expr ';' { variables.pop(); } //expression without assignment
 	| variable_definition ';'
 	| PRINT '(' expr ')' ';' 
 	{ 
 		cout << "Print\n";
 		asm_print(); 
 	}
-	| READ '(' ID ')' ';'
+	| READ '(' id_usage ')' ';'
 	{
 		asm_read();
 	}
 	;
 
 assign:
-	ID '=' expr 
-	{ 
-		cout << "INstrukcja przypisania do id: " << $1 << "\n";
-	}
+	id_usage '=' expr { }
 	|
 	variable_definition '=' expr { cout << "Definicja zmiennej z przypisaniem\n";};
+
+
 
 // instr:
 // 	expr ';'
@@ -269,10 +268,10 @@ skladnik:
 		cout << "skladnik pojedynczy \n";
 	};
 czynnik:
-	ID			
+	id_usage			
 	{
 		cout << "Identyfikator\n";
-		variables.push(Variable(symbols[$1], $1));
+		//variables.push(Variable(symbols[$1], $1));
 	} 
 	|INT			
 	{
@@ -288,12 +287,14 @@ czynnik:
 		cout << "wyrazenie w nawiasach\n";
 	};
 
-
+id_usage:
+	ID {variables.push(Variable(symbols[$1], $1));}
+;
 %%
 int main(int argc, char *argv[])
 {
 
-	yyparse();
+
 
 
 	//cout << "Skonczylem parsowac\n";
@@ -305,8 +306,12 @@ int main(int argc, char *argv[])
 	{
 		yyout = fopen(argv[2], "w");
 	}
+	yyparse();
+
 	generateASM(outputFile);
+
 	trojki.close();
+
 	outputFile.close();
 
 	return 0;

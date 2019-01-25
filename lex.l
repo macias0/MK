@@ -45,7 +45,7 @@ read						{return READ;}
 
 
 
-\ |\t						{;}
+\ |\t|\r					{;}
 \n							{yylineno++;}
 .							{yyerror("Blad leksykalny\n");}
 %%
