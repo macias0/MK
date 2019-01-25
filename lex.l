@@ -21,6 +21,13 @@ text						{return TYPE_TEXT;}
 print						{return PRINT;}
 read						{return READ;}
 
+\=\=						{return EQ;}
+\!\=						{return NE;}
+\>							{return GT;}
+\<							{return LT;}
+\>\=						{return GTE;}
+\<\=						{return LTE;}
+
 [1-9][0-9]*					{
 								yylval.integer = atoi(yytext);
 								return INT;

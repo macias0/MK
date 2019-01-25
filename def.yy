@@ -11,11 +11,15 @@
 #include <string>
 #include <sstream>
 #include <vector>
+#include <stdio.h>
 
 using namespace std;
 
 extern "C" int yylex();
 extern "C" int yyerror(const char* msg,...);
+
+extern FILE *yyin;
+extern FILE *yyout;
 
 class Variable
 {
@@ -57,8 +61,13 @@ std::stack<Variable> variables;
 std::map<std::string, Variable::Type> symbols;
 
 std::vector<std::string> asmCode;
+std::map<std::string, std::string> labelsCode;
+
+std::string currentLabel = "";
 
 Variable::Type tempType;
+
+int tempCmpOp;
 
 
 
@@ -66,18 +75,26 @@ std::ofstream trojki("trojki.txt", std::ofstream::out);
 
 std::ofstream outputFile("output.asm", std::ofstream::out);
 
-int tempCounter = 0;
+unsigned int tempCounter = 0;
+unsigned int labelCounter = 0;
 
-void writeOperation(char op);
+void writeOperation(const char op);
+
 void generateASM(std::ofstream &stream);
 void writeDataSection(std::ofstream &stream);
 void writeTextSection(std::ofstream &stream);
+void writeLabels(std::ofstream &stream);
+
 std::string getAsmType(Variable::Type type);
 
 void assignment();
 void loadVariableToRegister(const Variable &var, int regIndex, std::stringstream &stream);
 void asm_print();
 void asm_read();
+void asm_comparison();
+void asm_writeCode(const std::string&);
+
+
 
 
 %}
@@ -87,6 +104,7 @@ void asm_read();
 	char *text;
 	int	integer;
 	double real;
+
 }
 //%type <text> expr
 %token <text> ID
@@ -100,6 +118,12 @@ void asm_read();
 %token TYPE_TEXT
 %token PRINT
 %token READ
+%token EQ
+%token NE
+%token GT
+%token LT
+%token GTE
+%token LTE
 
 %%
 prog:
@@ -116,7 +140,7 @@ code:
 
 block:
 	line { cout << "Line\n";}
-	| if_stat { cout << "If\n"; };
+	| if_block { cout << "If\n"; };
 	
 
 
@@ -169,8 +193,45 @@ type:
 	| TYPE_TEXT{tempType = Variable::Text;}
 	;
 	
-if_stat:
-	IF '(' expr ')' '{' code '}' { cout << "If statement\n";};
+if_block:
+	if_expr '{' code '}' 
+	{ 
+		cout << "If block\n";
+		currentLabel = "";
+	}
+	;
+
+
+if_expr:
+	IF '(' conditional_expression ')' 
+	{
+		asm_comparison();
+	}
+	;
+
+
+conditional_expression:
+	comparison { }
+	| expr 
+	{ 
+		tempCmpOp = NE;
+		variables.push(0);
+	}
+	;
+
+comparison:
+	expr compare_operation expr
+	;
+
+compare_operation:
+	EQ {tempCmpOp = EQ;}
+	| NE {tempCmpOp = NE;}
+	| GT {tempCmpOp = GT;}
+	| LT {tempCmpOp = LT;}
+	| GTE {tempCmpOp = GTE;}
+	| LTE {tempCmpOp = LTE;}
+	;
+	
 
 expr:
 	expr '+' skladnik	
@@ -232,15 +293,18 @@ czynnik:
 int main(int argc, char *argv[])
 {
 
-
 	yyparse();
 
 
 	//cout << "Skonczylem parsowac\n";
 	if(argc > 1) //input file
-	{}
+	{
+		yyin = fopen(argv[1], "r");
+	}
 	if(argc > 2) //output file
-	{}
+	{
+		yyout = fopen(argv[2], "w");
+	}
 	generateASM(outputFile);
 	trojki.close();
 	outputFile.close();
@@ -288,7 +352,7 @@ void loadVariableToRegister(const Variable &var, std::string reg, std::stringstr
 }
 
 
-void writeOperation(char op)
+void writeOperation(const char op)
 {
 	auto op2 = variables.top();
 	variables.pop();
@@ -329,7 +393,7 @@ void writeOperation(char op)
 
 	operation << "\tsw $t0, " << resultVar.str() << endl;
 
-	asmCode.push_back(operation.str());
+	asm_writeCode(operation.str());
 
 }
 
@@ -337,6 +401,7 @@ void generateASM(std::ofstream &stream)
 {
 	writeDataSection(stream);
 	writeTextSection(stream);
+	writeLabels(stream);
 }
 
 void writeDataSection(std::ofstream &stream)
@@ -391,7 +456,7 @@ void assignment()
 	std::stringstream ss;
 	loadVariableToRegister(rvalue, "t0", ss);
 	ss << "\tsw $t0, " << var.name << endl;
-	asmCode.push_back(ss.str());
+	asm_writeCode(ss.str());
 
 }
 
@@ -418,7 +483,7 @@ void asm_print()
 	loadVariableToRegister(expr, "a0", ss);
 	ss << "\tsyscall\n"; 
 
-	asmCode.push_back(ss.str());
+	asm_writeCode(ss.str());
 }
 
 void asm_read()
@@ -443,5 +508,68 @@ void asm_read()
 	ss << "\tsyscall\n";
 	ss << "\tsw $v0, " << var << endl;
 
-	asmCode.push_back(ss.str());
+	asm_writeCode(ss.str());
+}
+
+void asm_comparison()
+{
+	auto var2 = variables.top();
+	variables.pop();
+	auto var1 = variables.top();
+	variables.pop();
+	std::stringstream ss;
+	ss << "label" << labelCounter++;
+	std::string labelName = ss.str();
+	labelsCode[labelName] = "";
+	ss.str("");
+	loadVariableToRegister(var1, "t2", ss);
+	loadVariableToRegister(var2, "t3", ss);
+	ss << "\t";
+	switch(tempCmpOp)
+	{
+		case EQ:
+			ss << "beq";
+			break;
+		case NE:
+			ss << "bne";
+			break;
+		case GT:
+			ss << "bgt";
+			break;
+		case LT:
+			ss << "blt";
+			break;
+		case GTE:
+			ss << "bge";
+			break;
+		case LTE:
+			ss << "ble";
+	}
+	ss << " $t2, $t3, " << labelName << endl;
+	asm_writeCode(ss.str());
+	currentLabel = labelName;
+
+}
+
+void asm_writeCode(const std::string &code) 
+{
+	if(currentLabel.empty()) //write to normal code
+	{
+		asmCode.push_back(code);
+	}
+	else ///write to label
+	{
+		labelsCode[currentLabel]+= code;
+	}
+}
+
+void writeLabels(std::ofstream &stream)
+{
+	auto it = labelsCode.begin();
+	while(it != labelsCode.end())
+	{
+		stream << "\n\t" << it->first << ":\n";
+		stream << it->second << endl;
+		++it;
+	}
 }
